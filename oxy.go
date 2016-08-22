@@ -4,41 +4,35 @@ import (
     "net/http"
     "net/url"
     "fmt"
-    "os/exec"
-    "bufio"
+    "os"
     "strings"
-    "bytes"
     "regexp"
+    "sync"
     "github.com/vulcand/oxy/forward"
 )
 
 
 func getAddrs() (map[string]string) {
-    services := ParseRawServices(GetRawEnv())
-    fmt.Println(services)
+    services := ParseRawServices(getEnviro())
     return services
 }
 
-func GetRawEnv() []byte {
-    output, _ := exec.Command("env").Output()
-    return output
+func getEnviro() []string {
+    return os.Environ()
 }
-
-func ParseRawServices(raw []byte) map[string]string {
+//ParseRawServices returns a map of the services we need to proxy
+// expecs environment variabls like: OUTSCORE_DEPLOYMENT_PORT_8080_TCP_ADDR=10.95.249.177
+func ParseRawServices(env []string) map[string]string {
     serviceMap := map[string]string{}
-    scanner := bufio.NewScanner(bytes.NewReader(raw))
 
-    scanner.Split(bufio.ScanLines)
-
-    for scanner.Scan() {
-        svc := scanner.Text()
-        if !strings.Contains(svc, "ADDR") {
+    for _, val := range env {
+        if !strings.Contains(val, "ADDR") {
             continue
         }
         portre := regexp.MustCompile("_(\\d*)_")
-        port := strings.Replace(portre.FindString(svc), "_", "", 2)
+        port := strings.Replace(portre.FindString(val), "_", "", 2)
         ipre := regexp.MustCompile("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}")
-        serviceMap[port] = ipre.FindString(svc)
+        serviceMap[port] = ipre.FindString(val)
     }
     return serviceMap
 }
@@ -48,28 +42,30 @@ func PortParse(url string) string {
 }
 
 func main() {
-    fwd, _ := forward.New()
 
-    servers := []http.Server{}
     targets := getAddrs()
-    fmt.Printf("Targets found: %q", targets)
+    fmt.Printf("Targets found: %q\n", targets)
+
+    wg := &sync.WaitGroup{}
+
     for port, host := range targets {
+        fmt.Printf("Serving: %q:%q\n", host,port)
 
+        fwd, _ := forward.New()
         redirect := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-            req.URL = &url.URL{
-                Scheme: "http",
-                Host: fmt.Sprintf("%s:%s", host, port),
-            }
-            fwd.ServeHTTP(w, req)
+                target := fmt.Sprintf("%s:%s", host, port)
+                req.URL = &url.URL{
+                    Scheme: "http",
+                    Host: target,
+                }
+                fwd.ServeHTTP(w, req)
         })
-        servers = append(servers, http.Server{
-            Addr: fmt.Sprintf(":%s", port),
-            Handler: redirect,
 
-        })
-    }
-
-    for _, server := range servers {
-        server.ListenAndServe()
-    }
+        wg.Add(1)
+        go func() {
+	           http.ListenAndServe(fmt.Sprintf(":%s", port), &redirect)
+               wg.Done()
+        }()
+	}
+    wg.Wait()
 }
