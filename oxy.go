@@ -1,13 +1,13 @@
 package main
 
 import (
-    "log"
     "net/http"
     "fmt"
     "os"
     "strings"
     "regexp"
     "net/http/httputil"
+    "strconv"
 )
 
 
@@ -27,9 +27,17 @@ func ParseRawServices(env []string) map[string]string {
         if !strings.Contains(val, "ADDR") {
             continue
         }
+        if (strings.Contains(val, "ROUTER") || strings.Contains(val, "KUBERNETES")) {
+            continue
+        }
+        fmt.Println("%s", val)
         portre := regexp.MustCompile("_(\\d*)_")
         port := strings.Replace(portre.FindString(val), "_", "", 2)
         ipre := regexp.MustCompile("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}")
+        portI, _ := strconv.Atoi(port)
+        if (portI > 65535) {
+            continue
+        }
         targets[port] = ipre.FindString(val)
     }
     return targets
@@ -58,10 +66,10 @@ func main() {
     for port, _ := range targets {
         serve := fmt.Sprintf(":%s", port)
         if (targetID == targetSize) {
-            log.Fatal(http.ListenAndServe(serve, proxy))
+            http.ListenAndServe(serve, proxy)
         } else {
             go func() {
-                log.Fatal(http.ListenAndServe(serve, proxy))
+                http.ListenAndServe(serve, proxy)
             }()
         }
         targetID = targetID + 1
