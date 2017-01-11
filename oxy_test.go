@@ -13,6 +13,7 @@ func TestRawServiceParse(t *testing.T) {
     raw := []string{
         "OUTSCORE_DEPLOYMENT_PORT_8080_TCP_ADDR=10.95.249.177",
         "TUNNELTEST_DEPLOYMENT_PORT_6061_TCP_ADDR=10.95.255.21",
+        "ROUTER_PORT_8080_TCP_ADDR=10.95.255.22",
     }
     returned := ParseRawServices(raw)
 
